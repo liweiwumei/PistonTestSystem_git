@@ -77,8 +77,23 @@ MainWindow::MainWindow(QWidget *parent)
     heartbeatTimer->start();
 
     m_plc = new PlcController(this);
-       m_plcHomeOk = false;
-       m_motorPositionDialog = nullptr;
+    m_plcHomeOk = false;
+    m_motorPositionDialog = nullptr;
+
+    connect(m_plc, &PlcController::sigConnected, this, [=]() {
+        btnMotorOrigin->setEnabled(true);  // 启用按钮
+    });
+
+    // ==============================================
+    // 你 PLC 真实信号：disconnected → 断开连接
+    // ==============================================
+    connect(m_plc, &PlcController::sigDisconnected, this, [=]() {
+        btnMotorOrigin->setEnabled(false); // 禁用按钮
+        QMessageBox::warning(this, "通讯异常", "PLC 已断开连接！");
+    });
+
+
+
 
        // PLC 状态接入心跳
        connect(m_plc, &PlcController::sigHeartbeatChanged, this, [this](bool ok){
@@ -258,6 +273,7 @@ void MainWindow::setupMainPage()
     centerLayout->setSpacing(40);
 
     QWidget *leftContainer = new QWidget(this);
+    //leftContainer->setMaximumWidth(200);
     QVBoxLayout *leftBtnLayout = new QVBoxLayout(leftContainer);
     leftBtnLayout->setSpacing(12);
     leftBtnLayout->setContentsMargins(0,0,0,0);
@@ -312,6 +328,8 @@ void MainWindow::setupMainPage()
     btnMotorOrigin = new QPushButton("电机回零点位置", mainPage);
     btnMotorOrigin->setStyleSheet(btnStyle);
     btnMotorOrigin->setEnabled(false);
+
+
     btnOpenGas = new QPushButton("开启/关闭天然气", mainPage);
     btnOpenGas->setStyleSheet(btnStyle);
     btnOpenGas->setEnabled(false);
@@ -415,7 +433,7 @@ void MainWindow::setupFireParamsPage()
     m_fireParamsDialog->setWindowTitle("点火参数设置");
     m_fireParamsDialog->setModal(true);
     // 不再固定死窗口大小，支持自由缩放
-    m_fireParamsDialog->setMinimumSize(1800, 1200); // 只设最小尺寸
+    m_fireParamsDialog->setMinimumSize(1800, 900); // 只设最小尺寸
 
     QVBoxLayout* mainLayout = new QVBoxLayout(m_fireParamsDialog);
     mainLayout->setContentsMargins(10,10,10,10);
@@ -442,7 +460,7 @@ void MainWindow::setupFireParamsPage()
     layBtn1->addWidget(btn1Off);
     layoutBurner1->addLayout(layBtn1);
 
-    QGroupBox* gbGas1 = new QGroupBox("天然气质量流量控制阀1控制参数");
+    QGroupBox* gbGas1 = new QGroupBox("天然气流量控制阀1控制参数");
     QFormLayout* formGas1 = new QFormLayout(gbGas1);
     formGas1->setRowWrapPolicy(QFormLayout::DontWrapRows);
     editGas1Target = new QLineEdit("0");
@@ -453,7 +471,7 @@ void MainWindow::setupFireParamsPage()
     formGas1->addRow("渐关时间", editGas1Down);
     layoutBurner1->addWidget(gbGas1);
 
-    QGroupBox* gbOxy1 = new QGroupBox("氧气质量流量控制阀1控制参数");
+    QGroupBox* gbOxy1 = new QGroupBox("氧气流量控制阀1控制参数");
     QFormLayout* formOxy1 = new QFormLayout(gbOxy1);
     formOxy1->setRowWrapPolicy(QFormLayout::DontWrapRows);
     editOxy1Target = new QLineEdit("0");
@@ -507,7 +525,7 @@ void MainWindow::setupFireParamsPage()
     layBtn2->addWidget(btn2Off);
     layoutBurner2->addLayout(layBtn2);
 
-    QGroupBox* gbGas2 = new QGroupBox("天然气质量流量控制阀2控制参数");
+    QGroupBox* gbGas2 = new QGroupBox("天然气流量控制阀2控制参数");
     QFormLayout* formGas2 = new QFormLayout(gbGas2);
     formGas2->setRowWrapPolicy(QFormLayout::DontWrapRows);
     editGas2Target = new QLineEdit("0");
@@ -518,7 +536,7 @@ void MainWindow::setupFireParamsPage()
     formGas2->addRow("渐关时间", editGas2Down);
     layoutBurner2->addWidget(gbGas2);
 
-    QGroupBox* gbOxy2 = new QGroupBox("氧气质量流量控制阀2控制参数");
+    QGroupBox* gbOxy2 = new QGroupBox("氧气流量控制阀2控制参数");
     QFormLayout* formOxy2 = new QFormLayout(gbOxy2);
     formOxy2->setRowWrapPolicy(QFormLayout::DontWrapRows);
     editOxy2Target = new QLineEdit("0");
@@ -575,6 +593,7 @@ void MainWindow::setupFireParamsPage()
 
     burn_up_layCommon->addLayout(left1_2_max_Layout);
     burn_up_layCommon->addLayout(layCommon);
+    leftContainer->setMaximumWidth(400);
     upperLayout->addWidget(leftContainer);
 
     // =====================================================
@@ -592,7 +611,7 @@ void MainWindow::setupFireParamsPage()
     IgnitionPlotWidget* plotIgn2 = new IgnitionPlotWidget(this);
     plotIgn2->setStyleSheet("border: 1px solid purple;");
     plotTimeLayout->addWidget(plotIgn2);
-
+    plotTimeWidget->setMaximumWidth(700);
     upperLayout->addWidget(plotTimeWidget);
 
 
@@ -732,10 +751,10 @@ void MainWindow::setupFireParamsPage()
     curvePiston3->resetTemperatureGraphs();
 
     // ======================= ✅ 核心：设置宽度比例 =======================
-    upperLayout->setStretch(0, 1);  // 燃烧器1+2 占比 3
-    upperLayout->setStretch(1, 2);  // 时序图      占比 2
+    upperLayout->setStretch(0, 3);  // 燃烧器1+2 占比 3
+    upperLayout->setStretch(1, 4);  // 时序图      占比 2
     upperLayout->setStretch(2, 1);  // 温度显示    占比 2
-    upperLayout->setStretch(3, 5);  // 温度曲线    占比 3
+    upperLayout->setStretch(3, 8);  // 温度曲线    占比 3
 
     mainLayout->addLayout(upperLayout);
 
@@ -971,6 +990,18 @@ void MainWindow::setupConnections()
     connect(btnMotorPosition, &QPushButton::clicked, this, &MainWindow::onMotorPosition, Qt::UniqueConnection);
     connect(btnHeatTransfer, &QPushButton::clicked, this, &MainWindow::onHeatTransfer, Qt::UniqueConnection);
     connect(btnThermalFatigue, &QPushButton::clicked, this, &MainWindow::onThermalFatigue, Qt::UniqueConnection);
+
+    // ==============================================
+    // 你 PLC 真实信号：connected → 连接成功
+    // ==============================================
+
+    // ==============================================
+    // 心跳断开（你自带的信号）
+    // ==============================================
+//    connect(m_plc, &PlcController::connectionLost, this, [=]() {
+//        btnMotorOrigin->setEnabled(false);
+//        QMessageBox::critical(this, "通讯错误", "PLC 心跳丢失，已断开！");
+//    });
 
     // 设备状态测试按钮（从右侧2x2块中添加点击事件，示例）
     // 如需绑定需先获取右侧功能块按钮，这里简化处理
