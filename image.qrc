@@ -1,0 +1,7 @@
+<RCC>
+    <qresource prefix="/">
+        <file>bg_track.png</file>
+        <file>fg_yellow_box.png</file>
+        <file>rotate_bg.png</file>
+    </qresource>
+</RCC>
