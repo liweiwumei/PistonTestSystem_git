@@ -1127,26 +1127,7 @@ void MainWindow::onOneKeyConnect()
 
 void MainWindow::onMotorOrigin()
 {
-	// 先禁用，防止重复点击
-	
-
     if (!m_plc->isConnected()) return;
-
-	btnMotorOrigin->setEnabled(false);
-
-	QTimer *flashTimer = new QTimer(this);
-	flashTimer->setInterval(500);
-	bool isGreen = false;
-
-	connect(flashTimer, &QTimer::timeout, this, [=]() mutable {
-		isGreen = !isGreen;
-		if (isGreen) {
-			btnMotorOrigin->setStyleSheet("background-color: green; color: white;");
-		} else {
-			btnMotorOrigin->setStyleSheet("");
-		}
-	});
-	flashTimer->start();
 
         QTimer::singleShot(200, this, [this](){
             m_plc->writeM(0, 1, nullptr);
@@ -1162,10 +1143,6 @@ void MainWindow::onMotorOrigin()
                                 btnMotorPosition->setEnabled(true);
                                 m_plc->writeM(1, false, nullptr);
                                 m_plc->writeM(51, false, nullptr);
-								flashTimer->stop();
-							flashTimer->deleteLater();
-							btnMotorOrigin->setStyleSheet("background-color: green; color: white;");
-							btnMotorOrigin->setEnabled(false);
                             }
                         });
                     });
