@@ -1148,15 +1148,15 @@ void MainWindow::onMotorOrigin()
 	});
 	flashTimer->start();
 
-        QTimer::singleShot(200, this, [this](){
+        QTimer::singleShot(200, this, [this, flashTimer](){
             m_plc->writeM(0, 1, nullptr);
 
-            QTimer::singleShot(200, this, [this](){
-                m_plc->writeM(1, true, [this](bool ok){
+            QTimer::singleShot(200, this, [this, flashTimer](){
+                m_plc->writeM(1, true, [this, flashTimer](bool ok){
                     if (!ok) return;
 
-                    QTimer::singleShot(500, this, [this](){
-                        m_plc->readM(51, [this](bool ok, bool val){
+                    QTimer::singleShot(500, this, [this, flashTimer](){
+                        m_plc->readM(51, [this, flashTimer](bool ok, bool val){
                             if (ok && val) {
                                 m_plcHomeOk = true;
                                 btnMotorPosition->setEnabled(true);
