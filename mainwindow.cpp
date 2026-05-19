@@ -23,6 +23,7 @@
 #include "ignitionplotwidget.h"
 #include "subcurve.h"
 
+
 // 补充 ModuleStatus 结构体定义（如果头文件未定义）
 
 MainWindow::MainWindow(QWidget *parent)
@@ -1325,10 +1326,10 @@ void MainWindow::onThermalFatigue(){}
 void MainWindow::onHeatTransfer(){}//onMotorPosition
 void MainWindow::onMotorPosition()
 {
-//    if (!m_plcHomeOk) {
-//        addLog("请先执行电机回零！", 1);
-//        return;
-//    }
+    //if (!m_plcHomeOk) {
+        //addLog("请先执行电机回零！", 1);
+    //    return;
+    //}
 
     // ======================
     // 主窗口
@@ -1338,15 +1339,46 @@ void MainWindow::onMotorPosition()
     motorPosDialog->setFixedSize(900, 550);
     motorPosDialog->setStyleSheet("background-color: #f0f0f0;");
 
+    QTimer *readD48Timer = new QTimer(motorPosDialog);
+    readD48Timer->setInterval(500);
+
+
     // ======================
     // 动画定时器
     // ======================
-    QTimer *arrowRotateTimer = new QTimer(this);
-    QTimer *pistonUpdateTimer = new QTimer(this);
+    QTimer *arrowRotateTimer = new QTimer(motorPosDialog);
+    QTimer *pistonUpdateTimer = new QTimer(motorPosDialog);
     int currentRotateAngle = 90;
 
+    // 按钮状态
+    QPushButton *dlgCurrentMoveBtn = nullptr;
+    QPushButton *dlgCurrentIgnitionBtn = nullptr;
+    QPushButton *dlgBlinkingBtn = nullptr;
+    QTimer *dlgBlinkTimer = new QTimer(motorPosDialog);
+    dlgBlinkTimer->setInterval(300);
+
+    auto startDlgButtonBlink = [&](QPushButton *btn) {
+        dlgBlinkingBtn = btn;
+        dlgBlinkTimer->start();
+    };
+
+    auto stopDlgButtonBlink = [&](QPushButton *btn) {
+        Q_UNUSED(btn);
+        dlgBlinkTimer->stop();
+        if (dlgBlinkingBtn)
+            dlgBlinkingBtn->setStyleSheet("");
+        dlgBlinkingBtn = nullptr;
+    };
+
+    connect(dlgBlinkTimer, &QTimer::timeout, this, [&]() {
+        if (!dlgBlinkingBtn) return;
+        static bool on = false;
+        on = !on;
+        dlgBlinkingBtn->setStyleSheet(on ? "background-color: red; color: white;" : "");
+    });
+
     // ======================
-    // 主布局：左右结构
+    // 主布局
     // ======================
     QHBoxLayout *mainLayout = new QHBoxLayout(motorPosDialog);
     mainLayout->setContentsMargins(15, 15, 15, 15);
@@ -1360,224 +1392,386 @@ void MainWindow::onMotorPosition()
     leftLayout->setSpacing(10);
     leftLayout->setContentsMargins(10, 10, 10, 10);
 
-    // 速度模式
     QGroupBox *speedGroup = new QGroupBox("速度模式");
     QFormLayout *speedLayout = new QFormLayout(speedGroup);
     QLineEdit *editRunSpeed = new QLineEdit();
+
+    QRegularExpression reg("^-?[0-9]*$");
+    QRegularExpressionValidator *validator = new QRegularExpressionValidator(reg, editRunSpeed);
+    editRunSpeed->setValidator(validator);
+    editRunSpeed->setPlaceholderText("100r/min");
+    connect(editRunSpeed, &QLineEdit::textChanged, this, [=](const QString &text) {
+        QString pureNum = text;
+        pureNum.remove("r/min");
+        if(!pureNum.isEmpty()){
+            editRunSpeed->blockSignals(true);
+            editRunSpeed->setText(pureNum + "r/min");
+            editRunSpeed->setCursorPosition(pureNum.length());
+            editRunSpeed->blockSignals(false);
+        }
+    });
+
     speedLayout->addRow("运行速度", editRunSpeed);
     speedLayout->addRow("激光传感器测距", new QPushButton("激光传感器测距"));
 
+    QPushButton *btnRecPos1 = new QPushButton("记录位置1");
+    QPushButton *btnRecPos2 = new QPushButton("记录位置2");
+    QPushButton *btnRecPos3 = new QPushButton("记录位置3");
     QHBoxLayout *posRecLayout = new QHBoxLayout();
-    posRecLayout->addWidget(new QPushButton("记录位置1"));
-    posRecLayout->addWidget(new QPushButton("记录位置2"));
-    posRecLayout->addWidget(new QPushButton("记录位置3"));
+    posRecLayout->addWidget(btnRecPos1);
+    posRecLayout->addWidget(btnRecPos2);
+    posRecLayout->addWidget(btnRecPos3);
+    // 界面显示标签（与记录位置同步显示）
+    QLabel *labelPos1 = new QLabel;
+    QLabel *labelPos2 = new QLabel;
+    QLabel *labelPos3 = new QLabel;
+//    QHBoxLayout *posRecLayoutLabel = new QHBoxLayout();
+//    posRecLayoutLabel->addWidget(labelPos1);
+//    posRecLayoutLabel->addWidget(labelPos2);
+//    posRecLayoutLabel->addWidget(labelPos3);
+//    speedLayout->addRow(posRecLayoutLabel);
+    //speedLayout->addRow(posRecLayout);
+
+//    QHBoxLayout *posRecLayoutLabel = new QHBoxLayout();
+//    posRecLayoutLabel->addWidget(btnRecPos1);
+//    posRecLayoutLabel->addWidget(btnRecPos2);
+//    posRecLayoutLabel->addWidget(btnRecPos3);
+
+    // 只用类成员变量，不要局部重新定义！
+    labelPos1->setText("pos1: 0");
+    labelPos2->setText("pos2: 0");
+    labelPos3->setText("pos3: 0");
+
+    QHBoxLayout *posRecLayoutLabel = new QHBoxLayout();
+    posRecLayoutLabel->addWidget(labelPos1);
+    posRecLayoutLabel->addWidget(labelPos2);
+    posRecLayoutLabel->addWidget(labelPos3);
+
+    // 先加标签，再加按钮
+    speedLayout->addRow(posRecLayoutLabel);
     speedLayout->addRow(posRecLayout);
 
+    QLabel *labelCurrent_pos = new QLabel("当前位置：");
+    labelCurrent_pos->setStyleSheet("color: blue; font-size: 14px;");
+    //stationLayout->addWidget(labelCurrent_pos);
+    //mainLayout->addWidget(stationBox);
+    QPushButton *btnStartJog = new QPushButton("开始运动");
+    QPushButton *btnStopJog = new QPushButton("停止运动");
     QHBoxLayout *runStopLayout = new QHBoxLayout();
-    runStopLayout->addWidget(new QPushButton("开始运动"));
-    runStopLayout->addWidget(new QPushButton("停止运动"));
+    runStopLayout->addWidget(btnStartJog);
+    runStopLayout->addWidget(btnStopJog);
+    speedLayout->addRow(labelCurrent_pos);
     speedLayout->addRow(runStopLayout);
     leftLayout->addWidget(speedGroup);
 
-    // 位置模式
+
+    //if (!dlgCurrentMoveBtn) { dlgPosMoveTimer->stop(); return; }
+
+   // m_plc->readM(52, [&](bool ok, bool val){
+
+    //}
+
+    connect(readD48Timer, &QTimer::timeout, this, [&]() {
+       // if (!isConnected || !homeReturnDone) return;
+
+        m_plc->readD(48, [&](bool ok, quint32 d1, qint32 d2){
+            if (ok) {
+                currentpos_value = d2;
+                labelCurrent_pos->setText(QString("当前位置: %1").arg(d2));
+            }
+        });
+
+    });
+
     QGroupBox *posGroup = new QGroupBox("位置模式");
+    QPushButton *btnMoveToPos1 = new QPushButton("运动至位置1");
+    QPushButton *btnMoveToPos2 = new QPushButton("运动至位置2");
+    QPushButton *btnMoveToPos3 = new QPushButton("运动至位置3");
     QHBoxLayout *posModeLayout = new QHBoxLayout(posGroup);
-    posModeLayout->addWidget(new QPushButton("运动至位置1"));
-    posModeLayout->addWidget(new QPushButton("运动至位置2"));
-    posModeLayout->addWidget(new QPushButton("运动至位置3"));
+    posModeLayout->addWidget(btnMoveToPos1);
+    posModeLayout->addWidget(btnMoveToPos2);
+    posModeLayout->addWidget(btnMoveToPos3);
     leftLayout->addWidget(posGroup);
 
     // ======================
-    // ✅ 活塞示意图（你要的滑动功能）
+    // 活塞示意图
     // ======================
     QWidget *pistonWidget = new QWidget();
     pistonWidget->setFixedHeight(150);
     pistonWidget->setStyleSheet("background: white; border: 1px solid #ccc;");
 
-    // 背景：轨道（双横线 + 固定竖线）
     QLabel *bgTrack = new QLabel(pistonWidget);
     bgTrack->setPixmap(QPixmap(":/bg_track.png").scaled(800, 100, Qt::KeepAspectRatio, Qt::SmoothTransformation));
     bgTrack->setGeometry(20, 25, 800, 100);
     bgTrack->setStyleSheet("border: none; outline: none; background: transparent;");
 
-    // 前景：黄色框（可移动）
     QLabel *yellowBox = new QLabel(bgTrack);
     yellowBox->setPixmap(QPixmap(":/fg_yellow_box.png").scaled(120, 100, Qt::KeepAspectRatio, Qt::SmoothTransformation));
     yellowBox->setStyleSheet("border: none; outline: none; background: transparent;");
 
-    // 红色双向箭头
     QLabel *redArrow = new QLabel(bgTrack);
     redArrow->setText("↔");
     redArrow->setStyleSheet("color: red; font-size: 24px;");
 
-    // 距离显示
     QLabel *distLabel = new QLabel(bgTrack);
     distLabel->setStyleSheet("color: red; font-size:14px; font-weight:bold;");
 
-    // 放到顶层
     yellowBox->raise();
     redArrow->raise();
     distLabel->raise();
-
     leftLayout->addWidget(pistonWidget);
 
     // ======================
-    // 右侧：点火杆旋转电机（最终无错版）
+    // 右侧：点火杆旋转电机
     // ======================
     QWidget *rightWidget = new QWidget();
     QVBoxLayout *rightLayout = new QVBoxLayout(rightWidget);
     rightLayout->setSpacing(15);
     rightLayout->setContentsMargins(10, 10, 10, 10);
 
+    QPushButton *btnIgnitionPos = new QPushButton("旋转至点火工位");
+    QPushButton *btnNonIgnitionPos = new QPushButton("旋转至非点火工位");
     QHBoxLayout *fireBtnLayout = new QHBoxLayout();
-    fireBtnLayout->addWidget(new QPushButton("旋转至点火工位"));
-    fireBtnLayout->addWidget(new QPushButton("旋转至非点火工位"));
+    fireBtnLayout->addWidget(btnIgnitionPos);
+    fireBtnLayout->addWidget(btnNonIgnitionPos);
     rightLayout->addLayout(fireBtnLayout);
 
-    // 旋转显示画布（自己绘图，不使用文字箭头）
     QLabel *rotateDisplay = new QLabel();
     rotateDisplay->setFixedSize(220, 220);
 
-    // 旋转角度
-    //int currentRotateAngle = 0;
+    //connect(arrowRotateTimer, &QTimer::timeout, this, [=]() mutable {
+    connect(arrowRotateTimer, &QTimer::timeout, this, [=, &currentRotateAngle]() mutable {
+        QPixmap bgPix(":/rotate_bg.png");
+        QPixmap scaledBg = bgPix.scaled(220, 220, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+        QPixmap pix = scaledBg.copy();
 
-    // 旋转动画定时器
-    connect(arrowRotateTimer, &QTimer::timeout, this, [=]() mutable {
-        // 创建画布
-        QPixmap bgPix(":/rotate_bg.png"); // 请替换成你的实际图片路径
-            // 方式B：如果你的图是在Qt资源文件里，用上面的方式；如果是本地路径，用下面的方式
-            // QPixmap bgPix("C:/xxx/burner_bg.png");
-
-            // 缩放背景图到label大小（保持比例，居中显示）
-            QPixmap scaledBg = bgPix.scaled(220, 220, Qt::KeepAspectRatio, Qt::SmoothTransformation);
-            QPixmap pix = scaledBg.copy(); // 复制一份用来画箭头，不破坏原图
-
-            QPainter painter(&pix);
-            painter.setRenderHint(QPainter::Antialiasing);
-
-        // 画红色双向箭头
+        QPainter painter(&pix);
+        painter.setRenderHint(QPainter::Antialiasing);
         painter.setPen(QPen(Qt::red, 3));
         painter.setBrush(Qt::red);
 
         int cx = pix.width() / 2;
-         int cy = pix.height() / 2+10;
+        int cy = pix.height() / 2 + 10;
         int arrowLength = 80;
 
         painter.save();
         painter.translate(cx, cy);
         painter.rotate(currentRotateAngle);
-
-        // 竖线
         painter.drawLine(0, -arrowLength, 0, arrowLength);
-
-        // 上箭头
         painter.drawLine(0, -arrowLength, -7, -arrowLength + 15);
         painter.drawLine(0, -arrowLength, 7, -arrowLength + 15);
-
-        // 下箭头
         painter.drawLine(0, arrowLength, -7, arrowLength - 15);
         painter.drawLine(0, arrowLength, 7, arrowLength - 15);
-
         painter.restore();
         painter.end();
 
         rotateDisplay->setPixmap(pix);
-
-        // 旋转速度
         currentRotateAngle += 2;
-        if (currentRotateAngle > 90) {
-            currentRotateAngle = 0;
-        }
+        if (currentRotateAngle > 90) currentRotateAngle = 0;
     });
 
     rightLayout->addWidget(rotateDisplay, 0, Qt::AlignCenter);
-    // ======================
-    // 总布局组装
-    // ======================
     mainLayout->addWidget(leftWidget, 5);
     mainLayout->addWidget(rightWidget, 3);
 
-
-
     // ======================
-    // ✅ 活塞滑动逻辑（完全按你要求）
+    // 活塞滑动动画
     // ======================
-    const int FIXED_LINE1 = 80;    // 左侧固定竖线
-    const int FIXED_LINE2 = 240;    // 初始位置竖线
+    const int FIXED_LINE1 = 80;
+    const int FIXED_LINE2 = 240;
     const int BOX_WIDTH = 120;
-    const int RIGHT_LIMIT = 720;    // 轨道最右侧
-
-    // 初始位置：黄色框紧贴第二条竖线
+    const int RIGHT_LIMIT = 720;
     yellowBox->move(FIXED_LINE2, (bgTrack->height() - yellowBox->height())/2-13);
     float dist = 60;
 
-    connect(pistonUpdateTimer, &QTimer::timeout, this, [=]() mutable {
-        //if (!dam3055 || !dam3055[0]) return;
-
-        // 真实距离
-        //float dist = dam3055[0]->getAIValue(8);
-        dist = dist-0.5;
-        // 计算位置
+    connect(pistonUpdateTimer, &QTimer::timeout, this, [=, &dist]() mutable {
+        dist -= 0.5f;
         int x = FIXED_LINE2 + (dist - 50) * 4.0f;
-
-        // 左限位：不能碰到第一条竖线
-        if (x < FIXED_LINE1 + 10)
-            x = FIXED_LINE1 + 10;
-
-        // 右限位：黄色框右边不出轨道
-        if (x + BOX_WIDTH > RIGHT_LIMIT)
-            x = RIGHT_LIMIT - BOX_WIDTH;
-        qDebug()<<x;
-
-        // 移动黄色框
+        if (x < FIXED_LINE1 + 10) x = FIXED_LINE1 + 10;
+        if (x + BOX_WIDTH > RIGHT_LIMIT) x = RIGHT_LIMIT - BOX_WIDTH;
         yellowBox->move(x, yellowBox->y());
-
-        // 箭头在两条竖线中间
         int arrowX = (FIXED_LINE2 + x) / 2 - 15;
         redArrow->setGeometry(arrowX, 20, 30, 30);
-
-        // 距离显示
         distLabel->setText(QString::number(dist, 'f', 1) + " mm");
         distLabel->setGeometry(arrowX - 20, 5, 60, 20);
     });
 
-    // 旋转动画
-    connect(arrowRotateTimer, &QTimer::timeout, this, [=]() mutable {
-        currentRotateAngle += 4;
-        if (currentRotateAngle >= 180) currentRotateAngle = 0;
-        //rotateArrow->setStyleSheet(QString("font-size:120px; color:red; qtransform: rotate(%1deg);").arg(currentRotateAngle));
+    // ======================
+    // 速度获取
+    // ======================
+    auto getDlgSpeedValue = [=]() -> qint32 {
+        QString text = editRunSpeed->text().remove("r/min").trimmed();
+        bool ok;
+        qint32 v = text.toInt(&ok);
+        return ok ? v : 100;
+    };
+
+    // ======================
+    // ✅ 1. 记录位置
+    // ======================
+    connect(btnRecPos1, &QPushButton::clicked, this, [=]() {
+        pos1 = currentpos_value;
+        labelPos1->setText(QString("pos1: %1").arg(pos1));
+       // addLog("已记录位置1：" + QString::number(pos1));
     });
 
-    // 关闭时停止定时器
+    connect(btnRecPos2, &QPushButton::clicked, this, [=]() {
+        pos2 = currentpos_value;
+        labelPos2->setText(QString("pos2: %1").arg(pos2));
+       // addLog("已记录位置2：" + QString::number(pos2));
+    });
+
+    connect(btnRecPos3, &QPushButton::clicked, this, [=]() {
+        pos3 = currentpos_value;
+        labelPos3->setText(QString("pos3: %1").arg(pos3));
+       // addLog("已记录位置3：" + QString::number(pos3));
+    });
+
+    // ======================
+    // ✅ 2. 开始 / 停止运动（严格使用你的 PlcController::writeD / writeM）
+    // ======================
+    connect(btnStartJog, &QPushButton::clicked, this, [=]() {
+        if (!m_plc->isConnected() || !m_plcHomeOk) return;
+
+        qint32 speed = getDlgSpeedValue();
+        qint32 speed_fre = qAbs(speed) * 10000 / 60;
+        qint32 fre = (speed < 0) ? -99999999 : 99999999;
+
+        m_plc->writeD(0, fre);
+        m_plc->writeD(2, speed_fre);
+        m_plc->writeM(2, true);
+    });
+
+    connect(btnStopJog, &QPushButton::clicked, this, [=]() {
+        m_plc->writeM(2, false);
+    });
+
+    // ======================
+    // ✅ 3. 运动到位置1/2/3
+    // ======================
+    QTimer *dlgPosMoveTimer = new QTimer(motorPosDialog);
+    dlgPosMoveTimer->setInterval(200);
+    connect(dlgPosMoveTimer, &QTimer::timeout, this, [&]() {
+        if (!dlgCurrentMoveBtn) { dlgPosMoveTimer->stop(); return; }
+
+        m_plc->readM(52, [&](bool ok, bool val){
+            if (ok && val) {
+                dlgPosMoveTimer->stop();
+                stopDlgButtonBlink(dlgCurrentMoveBtn);
+                m_plc->writeM(2, false);
+                dlgCurrentMoveBtn = nullptr;
+            }
+        });
+    });
+
+    auto dlgMoveToPos = [&](qint32 targetPos, QPushButton *btn) {
+        if (dlgCurrentMoveBtn || !m_plc->isConnected() || !m_plcHomeOk) return;
+
+        qint32 speed = getDlgSpeedValue();
+        qint32 speed_fre = qAbs(speed) * 10000 / 60;
+        qint32 needmove = targetPos - currentpos_value;
+
+        dlgCurrentMoveBtn = btn;
+        startDlgButtonBlink(btn);
+
+        m_plc->writeD(0, needmove);
+        m_plc->writeD(2, speed_fre);
+        m_plc->writeM(2, true);
+
+        QTimer::singleShot(1000, this, [&](){ dlgPosMoveTimer->start(); });
+    };
+
+    connect(btnMoveToPos1, &QPushButton::clicked, this, [=]() { dlgMoveToPos(pos1, btnMoveToPos1); });
+    connect(btnMoveToPos2, &QPushButton::clicked, this, [=]() { dlgMoveToPos(pos2, btnMoveToPos2); });
+    connect(btnMoveToPos3, &QPushButton::clicked, this, [=]() { dlgMoveToPos(pos3, btnMoveToPos3); });
+
+    // ======================
+    // ✅ 4. 点火 / 非点火位置
+    // ======================
+    QTimer *dlgIgnitionCheckTimer = new QTimer(motorPosDialog);
+    dlgIgnitionCheckTimer->setInterval(200);
+    connect(dlgIgnitionCheckTimer, &QTimer::timeout, this, [&]() {
+        if (!dlgCurrentIgnitionBtn) { dlgIgnitionCheckTimer->stop(); return; }
+
+        if (dlgCurrentIgnitionBtn == btnIgnitionPos) {
+            m_plc->readM(55, [&](bool ok, bool val){
+                if (ok && val) {
+                    dlgIgnitionCheckTimer->stop();
+                    stopDlgButtonBlink(btnIgnitionPos);
+                    m_plc->writeM(10, false);
+                    btnIgnitionPos->setEnabled(false);
+                    btnNonIgnitionPos->setEnabled(true);
+                    dlgCurrentIgnitionBtn = nullptr;
+                }
+            });
+        } else {
+            m_plc->readM(54, [&](bool ok, bool val){
+                if (ok && val) {
+                    dlgIgnitionCheckTimer->stop();
+                    stopDlgButtonBlink(btnNonIgnitionPos);
+                    m_plc->writeM(11, false);
+                    btnNonIgnitionPos->setEnabled(false);
+                    btnIgnitionPos->setEnabled(true);
+                    dlgCurrentIgnitionBtn = nullptr;
+                }
+            });
+        }
+    });
+
+    connect(btnIgnitionPos, &QPushButton::clicked, this, [=]() mutable {
+        if (dlgCurrentIgnitionBtn || !m_plc->isConnected() || !m_plcHomeOk) return;
+        dlgCurrentIgnitionBtn = btnIgnitionPos;
+        startDlgButtonBlink(btnIgnitionPos);
+        m_plc->writeM(10, true);
+        dlgIgnitionCheckTimer->start();
+    });
+
+    connect(btnNonIgnitionPos, &QPushButton::clicked, this, [=]() mutable {
+        if (dlgCurrentIgnitionBtn || !m_plc->isConnected() || !m_plcHomeOk) return;
+        dlgCurrentIgnitionBtn = btnNonIgnitionPos;
+        startDlgButtonBlink(btnNonIgnitionPos);
+        m_plc->writeM(11, true);
+        dlgIgnitionCheckTimer->start();
+    });
+
+    // ======================
+    // 按钮样式
+    // ======================
+    QList<QPushButton*> btns = motorPosDialog->findChildren<QPushButton*>();
+    for (QPushButton* btn : btns) {
+        btn->setStyleSheet(R"(
+            QPushButton {
+                min-height: 40px;
+                font-size:14px;
+                border:1px solid black;
+                background:white;
+            }
+            QPushButton:pressed {
+                background-color: #d0d0d0;
+                padding-left: 2px;
+                padding-top: 2px;
+            }
+        )");
+    }
+
+    // ======================
+    // 关闭窗口时停止所有
+    // ======================
     connect(motorPosDialog, &QDialog::finished, this, [=]() {
         arrowRotateTimer->stop();
         pistonUpdateTimer->stop();
+        dlgPosMoveTimer->stop();
+        dlgIgnitionCheckTimer->stop();
+        dlgBlinkTimer->stop();
+
+        m_plc->writeM(2, false);
+        m_plc->writeM(10, false);
+        m_plc->writeM(11, false);
     });
 
     arrowRotateTimer->start(40);
     pistonUpdateTimer->start(200);
-
-    QList<QPushButton*> btns = motorPosDialog->findChildren<QPushButton*>();
-       for (QPushButton* btn : btns) {
-           btn->setStyleSheet(R"(
-               QPushButton {
-                   min-height: 40px;
-                   font-size:14px;
-                   border:1px solid black;
-                   background:white;
-               }
-               QPushButton:pressed {
-                   background-color: #d0d0d0;
-                   padding-left: 2px;
-                   padding-top: 2px;
-               }
-               QPushButton:checked {
-                   background:#90EE90;
-               }
-           )");
-       }
-
-    // 显示窗口
+    readD48Timer->start();   // <-- 加上这一句！
     motorPosDialog->exec();
 }
 

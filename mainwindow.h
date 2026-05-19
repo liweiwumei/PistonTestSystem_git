@@ -155,6 +155,13 @@ private:
        // 参数输入
        QLineEdit *editPosSpeed;
        QLineEdit *editPosTarget;
+
+           qint32 currentpos_value;        // 当前实时位置值
+           qint32 pos1;                    // 记录位置1
+           qint32 pos2;                    // 记录位置2
+           qint32 pos3;                    // 记录位置3
+
+
    /************这个是电机设置界面***end***************/
 
 /************这个是点火参数界面***start***************/
