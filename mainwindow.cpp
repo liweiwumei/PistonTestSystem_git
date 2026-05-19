@@ -1127,51 +1127,95 @@ void MainWindow::onOneKeyConnect()
 
 void MainWindow::onMotorOrigin()
 {
-	// 先禁用，防止重复点击
-	
+    // 先禁用，防止重复点击
+    if (!m_plc->isConnected())
+        return;
 
-    if (!m_plc->isConnected()) return;
+    btnMotorOrigin->setEnabled(false);
 
-	btnMotorOrigin->setEnabled(false);
+    // 固定按钮大小和字体，绝不变形
+    QSize fixedSize = btnMotorOrigin->size();
+    btnMotorOrigin->setFixedSize(fixedSize);
+    QFont btnFont = btnMotorOrigin->font();
+    btnMotorOrigin->setFont(btnFont);
 
-	QTimer *flashTimer = new QTimer(this);
-	flashTimer->setInterval(500);
-	bool isGreen = false;
+    // 闪烁定时器
+    QTimer *flashTimer = new QTimer(this);
+    flashTimer->setInterval(500);
+    bool isGreen = false;
 
-	connect(flashTimer, &QTimer::timeout, this, [=]() mutable {
-		isGreen = !isGreen;
-		if (isGreen) {
-			btnMotorOrigin->setStyleSheet("background-color: green; color: white;");
-		} else {
-			btnMotorOrigin->setStyleSheet("");
-		}
-	});
-	flashTimer->start();
+    connect(flashTimer, &QTimer::timeout, this, [=]() mutable {
+        isGreen = !isGreen;
+        if (isGreen) {
+            btnMotorOrigin->setStyleSheet("background-color: green; color: white;");
+        } else {
+            btnMotorOrigin->setStyleSheet("");
+        }
+    });
+    flashTimer->start();
 
-        QTimer::singleShot(200, this, [this, flashTimer](){
-            m_plc->writeM(0, 1, nullptr);
+    // ======================
+    // 开始执行回零逻辑
+    // ======================
+    QTimer::singleShot(200, this, [this, flashTimer]() {
+        m_plc->writeM(0, 1, nullptr);
 
-            QTimer::singleShot(200, this, [this, flashTimer](){
-                m_plc->writeM(1, true, [this, flashTimer](bool ok){
-                    if (!ok) return;
+        QTimer::singleShot(200, this, [this, flashTimer]() {
+            m_plc->writeM(1, true, [this, flashTimer](bool ok) {
+                if (!ok) return;
 
-                    QTimer::singleShot(500, this, [this, flashTimer](){
-                        m_plc->readM(51, [this, flashTimer](bool ok, bool val){
-                            if (ok && val) {
-                                m_plcHomeOk = true;
-                                btnMotorPosition->setEnabled(true);
-                                m_plc->writeM(1, false, nullptr);
-                                m_plc->writeM(51, false, nullptr);
-								flashTimer->stop();
-							flashTimer->deleteLater();
-							btnMotorOrigin->setStyleSheet("background-color: green; color: white;");
-							btnMotorOrigin->setEnabled(false);
-                            }
-                        });
+                // ======================
+                // 轮询读取 M51
+                // ======================
+                QTimer *pollTimer = new QTimer(this);
+                int timeoutCount = 0;
+
+                // 【修复】这里必须捕获 pollTimer + flashTimer + this
+                connect(pollTimer, &QTimer::timeout, this, [this, flashTimer, pollTimer, &timeoutCount]() mutable {
+                    timeoutCount++;
+
+                    // 超时保护
+                    if (timeoutCount > 500) {
+                        pollTimer->stop();
+                        pollTimer->deleteLater();
+                        flashTimer->stop();
+                        flashTimer->deleteLater();
+                        btnMotorOrigin->setStyleSheet("background-color: red; color: white;");
+                        btnMotorOrigin->setEnabled(true);
+                        qDebug() << "M51轮询超时，未置位";
+                        return;
+                    }
+
+                    // 读取 M51
+                    m_plc->readM(51, [this, flashTimer, pollTimer](bool ok, bool val) {
+                        if (!ok) return;
+
+                        qDebug() << "M51 当前值：" << val;
+
+                        if (val) {
+                            // 回零完成
+                            m_plcHomeOk = true;
+                            btnMotorPosition->setEnabled(true);
+                            m_plc->writeM(1, false, nullptr);
+                            m_plc->writeM(51, false, nullptr);
+
+                            // 停止所有定时器
+                            flashTimer->stop();
+                            flashTimer->deleteLater();
+                            pollTimer->stop();
+                            pollTimer->deleteLater();
+
+                            // 最终状态
+                            btnMotorOrigin->setStyleSheet("background-color: green; color: white;");
+                            btnMotorOrigin->setEnabled(false);
+                        }
                     });
                 });
+
+                pollTimer->start(200); // 开始轮询
             });
         });
+    });
 }
 // ===================== 断开连接 =====================
 void MainWindow::onDisconnect()
